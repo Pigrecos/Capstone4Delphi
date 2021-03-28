@@ -1,6 +1,5 @@
 # Capstone4Delphi
-
- [Capstone Disassembler Library](http://www.capstone-engine.org/)
+ Capstone Disassembler Library Binding for Delphi . [Capstone Disassembler Library](http://www.capstone-engine.org/)
  
 ## Usage
 
