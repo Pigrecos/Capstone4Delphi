@@ -3,7 +3,8 @@
  
 ## Usage
 
-  Included is the wrapper class `TCapstone` in `Capstone.pas`, very flexible and with many features . 
+  Included is the wrapper class `TCapstone` in `Capstone.pas`, very flexible and with many features,Creation, comparison, conversion etc .. .
+  The example below is incomplete. 
   
 ~~~pas
 uses
