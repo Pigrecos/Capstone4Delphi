@@ -190,6 +190,13 @@ type
 
   PCpuIstruz = ^TCpuIstruz;
   TCpuIstruz = record
+   private
+     class function    Internal_Ingroup(Istruz: TCpuIstruz; group: cs_group_type): Boolean; static;
+     class function    InGroup(Istruz: TCpuIstruz;group: cs_group_type): Boolean; overload; static;
+     function          InGroup(group: cs_group_type): Boolean; overload;
+
+   public
+    Istruz_Arch  : cs_mode;
     opcode       : TCpuOpCode;
     opCount      : Integer;
     operands     : array[0..3] of TCpuOperand; // compatibile con capstone
@@ -209,6 +216,34 @@ type
 
     function IsEq(cCmd : TCpuOpCode; opTipo : TArray<TCpuOperandTipo>):Boolean;
     function ToString(PrintAddr: Boolean= False): string;
+
+    function          IsCFI: Boolean; overload;
+    class function    IsCFI(Istruz: TCpuIstruz): Boolean;  overload;static;
+    function          IsRet: Boolean; overload;
+    class function    IsRet(Istruz: TCpuIstruz): Boolean; overload;static;
+    function          IsCall: Boolean; overload;
+    class function    IsCall(Istruz: TCpuIstruz): Boolean; overload;static;
+    function          IsDirectCall: Boolean;overload;
+    class function    IsDirectCall(Istruz: TCpuIstruz): Boolean; overload;static;
+    function          IsIndirectCall: Boolean; overload;
+    class function    IsIndirectCall(Istruz: TCpuIstruz): Boolean; overload;static;
+    function          IsJmp: Boolean; overload;
+    class function    IsJmp(Istruz: TCpuIstruz): Boolean;overload;static;
+    function          IsDirectJmp: Boolean;overload;
+    class function    IsDirectJmp(Istruz: TCpuIstruz): Boolean;overload;static;
+    function          IsIndirectJmp: Boolean;overload;
+    class function    IsIndirectJmp(Istruz: TCpuIstruz): Boolean; overload;static;
+    function          IsJcc: Boolean; overload;
+    class function    IsJcc(Istruz: TCpuIstruz): Boolean; overload; static;
+    function          IsLoop: Boolean; overload;
+    class function    IsLoop(Istruz: TCpuIstruz): Boolean; overload;static;
+    function          BranchDestination: Uint64;  overload;
+    class function    BranchDestination(Istruz: TCpuIstruz): Uint64;  overload; static;
+    function          IsUnusual: Boolean;
+    function          IsInt3: Boolean;
+    function          IsNop: Boolean;
+    function          IsError: Boolean;
+    function          IsInvalid: Boolean;
   end;
   TListCpuIstruz = array of TCpuIstruz;
 
@@ -232,8 +267,7 @@ type
     FInsn        : Pcs_insn;
     FIstruz      : TCpuIstruz;
     FNomeFile    : AnsiString;
-    function    InGroup(Istruz: TCpuIstruz;group: cs_group_type): Boolean; overload;
-    function    InGroup(group: cs_group_type): Boolean; overload;
+
     function    FileOffsetToRva(dwFileOffset: UInt64): UInt64;
     function    RvaToOffset(Rva: UInt64): UInt64;
     function    VaToFileOffset(dwVA: UInt64): UInt64;
@@ -246,7 +280,6 @@ type
     function    GetId: Cardinal;
     function    GetSize: Word;
     procedure   GetRegRW(ins: Pcs_insn);
-    function    Internal_Ingroup(Istruz: TCpuIstruz; group: cs_group_type): Boolean;
 
   public
     // init function
@@ -271,31 +304,14 @@ type
     function    MemSizeName(size: Integer): string;
     function    FromCapstone(const insn: cs_insn): TCpuIstruz;
     function    FileOffsetToVa(dwFileOffset: UInt64): UInt64;
-    function    IsCFI: Boolean; overload;
-    function    IsCFI(Istruz: TCpuIstruz): Boolean;  overload;
-    function    IsRet: Boolean; overload;
-    function    IsRet(Istruz: TCpuIstruz): Boolean; overload;
-    function    IsCall: Boolean; overload;
-    function    IsCall(Istruz: TCpuIstruz): Boolean; overload;
-    function    IsJmp: Boolean; overload;
-    function    IsJmp(Istruz: TCpuIstruz): Boolean;overload;
-    function    IsJcc: Boolean; overload;
-    function    IsJcc(Istruz: TCpuIstruz): Boolean; overload;
-    function    IsLoop: Boolean; overload;
-    function    IsLoop(Istruz: TCpuIstruz): Boolean; overload;
     function    IsRegSegment(reg: TRegisters): Boolean;
-    function    BranchDestination: Uint64;  overload;
-    function    BranchDestination(Istruz: TCpuIstruz): Uint64;  overload;
     function    GenLabelCode(List: TListCpuIstruz;  var OutList: TStringList;lviewAddr: Boolean= False): Boolean; overload;
     function    GenLabelCode(List: TLinkedList<TCpuIstruz>; var OutList: TStringList;lviewAddr: Boolean= False):Boolean; overload;
     function    ToArray(List: TLinkedList<TCpuIstruz>):TListCpuIstruz;
     // Porting varie funzioni da x64dbg
     function   IsConditionalGoingToExecute(id: Mnemonics; cflags: size_t): Boolean;
     function   IsBranchGoingToExecute     (id: Mnemonics; cflags, ccx: size_t): Boolean;
-    function   IsUnusual: Boolean;
-    function   IsInt3: Boolean;
-    function   IsNop: Boolean;
-    function   isSafe64NopRegOp(op: TCpuOperand): Boolean;
+    class function   isSafe64NopRegOp(op: TCpuOperand; mModo: cs_mode): Boolean;
     // To string Function
     function    ToString(Istruz: TCpuIstruz): string; reintroduce ; overload;
     function    ToString:string; reintroduce ; overload;
@@ -1016,6 +1032,316 @@ begin
 end;
 
 { TCpuIstruz }
+class function TCpuIstruz.InGroup(Istruz: TCpuIstruz; group: cs_group_type): Boolean;
+var
+  id : x86_insn;
+begin
+
+    if group = CS_GRP_PRIVILEGE then
+    begin
+         id := x86_insn(Istruz.OpCode.mnem);
+        // I/O instructions
+        if (id = X86_INS_OUT) or (id = X86_INS_OUTSB) or (id = X86_INS_OUTSD) or (id = X86_INS_OUTSW) or
+           (id = X86_INS_IN)  or (id = X86_INS_INSB)  or (id = X86_INS_INSD)  or (id = X86_INS_INSW)  or
+            // system instructions
+           (id = X86_INS_RDMSR) or (id = X86_INS_SMSW)  then
+            Exit(true);
+    end;
+    Result := Internal_Ingroup(Istruz, group);
+
+end;
+
+function TCpuIstruz.InGroup(group: cs_group_type): Boolean;
+begin
+    Result := InGroup(self,group) ;
+end;
+
+class function TCpuIstruz.Internal_Ingroup(Istruz: TCpuIstruz; group: cs_group_type): Boolean;
+var
+  i : Integer;
+begin
+    Result := False;
+    for i := 0 to High(istruz.groups) do
+      if istruz.groups[i] = Ord(group) then
+        Exit(True)
+end;
+
+class function TCpuIstruz.BranchDestination(Istruz: TCpuIstruz): Uint64;
+var
+  op : TCpuOperand;
+begin
+
+    if(InGroup(Istruz,CS_GRP_JUMP)) or (InGroup(Istruz,CS_GRP_CALL)) or (IsLoop(Istruz)) then
+    begin
+        op := Istruz.operands[0];
+        if op.Tipo = T_IMM then
+             Exit(op.imm.U);
+    end;
+    Result := 0;
+
+end;
+
+function TCpuIstruz.BranchDestination: Uint64;
+begin
+    Result := BranchDestination(Self)
+end;
+
+class function TCpuIstruz.IsCall(Istruz: TCpuIstruz): Boolean;
+begin
+     Result := InGroup(Istruz,CS_GRP_CALL)
+end;
+
+function TCpuIstruz.IsCall: Boolean;
+begin
+     Result := IsCall(Self);
+end;
+
+function TCpuIstruz.IsDirectCall: Boolean;
+begin
+    Result := IsDirectCall(Self);
+end;
+
+class function TCpuIstruz.IsDirectCall(Istruz: TCpuIstruz): Boolean;
+begin
+    Result := IsCall(Istruz) and (Istruz.operands[0].tipo = T_IMM)
+end;
+
+function TCpuIstruz.IsIndirectCall: Boolean;
+begin
+    Result := IsIndirectCall(Self);
+end;
+
+class function TCpuIstruz.IsIndirectCall(Istruz: TCpuIstruz): Boolean;
+begin
+    Result := IsCall(Istruz) and (Istruz.operands[0].tipo <> T_IMM)
+end;
+
+function TCpuIstruz.IsCFI: Boolean;
+begin
+    Result := IsCFI(Self);
+end;
+
+class function TCpuIstruz.IsCFI(Istruz: TCpuIstruz): Boolean;
+begin
+    if IsJcc(Istruz)        then Exit(True)
+    else if IsJmp(Istruz)   then Exit(True)
+    else if IsCall(Istruz)  then Exit(True)
+    else if IsRet(Istruz)   then Exit(True)
+    else if IsLoop(Istruz)  then Exit(True)
+    else
+         Exit(False)
+end;
+
+class function TCpuIstruz.IsJcc(Istruz: TCpuIstruz): Boolean;
+begin
+   if(InGroup(Istruz,CS_GRP_JUMP)) and  (x86_insn(Istruz.opcode.mnem) <> X86_INS_JMP) then
+     Result := True
+   else
+     Result := False;
+end;
+
+function TCpuIstruz.IsJcc: Boolean;
+begin
+    Result := IsJcc(Self);
+end;
+
+function TCpuIstruz.IsJmp: Boolean;
+begin
+   Result := IsJmp(Self);
+end;
+
+class function TCpuIstruz.IsJmp(Istruz: TCpuIstruz): Boolean;
+begin
+    Result := x86_insn(Istruz.opcode.mnem) = X86_INS_JMP;
+end;
+
+function TCpuIstruz.IsDirectJmp: Boolean;
+begin
+    Result := IsDirectJmp(Self);
+end;
+
+class function TCpuIstruz.IsDirectJmp(Istruz: TCpuIstruz): Boolean;
+begin
+    Result := IsJmp(Istruz) and (Istruz.operands[0].tipo = T_IMM)
+end;
+
+function TCpuIstruz.IsIndirectJmp: Boolean;
+begin
+    Result := IsIndirectJmp(Self);
+end;
+
+class function TCpuIstruz.IsIndirectJmp(Istruz: TCpuIstruz): Boolean;
+begin
+    Result := IsJmp(Istruz) and (Istruz.operands[0].tipo <> T_IMM)
+end;
+
+class function TCpuIstruz.IsLoop(Istruz: TCpuIstruz): Boolean;
+begin
+    case x86_insn(Istruz.opcode.mnem) of
+      X86_INS_LOOP,
+      X86_INS_LOOPE,
+      X86_INS_LOOPNE : Result := True;
+    else
+      Result := False;
+    end;
+end;
+
+function TCpuIstruz.IsLoop: Boolean;
+begin
+    Result := IsLoop(Self) ;
+end;
+
+function TCpuIstruz.IsRet: Boolean;
+begin
+    Result := IsRet(Self);
+end;
+
+class function TCpuIstruz.IsRet(Istruz: TCpuIstruz): Boolean;
+begin
+    Result := InGroup(Istruz,CS_GRP_RET)
+end;
+
+function TCpuIstruz.IsUnusual: Boolean;
+var
+  id : x86_insn;
+begin
+     id := x86_insn(opcode.mnem);
+     Exit( (InGroup(CS_GRP_PRIVILEGE))or (InGroup(CS_GRP_IRET))  or (InGroup(CS_GRP_INVALID))
+             or (id = X86_INS_RDTSC)  or (id = X86_INS_SYSCALL) or (id = X86_INS_SYSENTER) or (id = X86_INS_CPUID)
+             or (id = X86_INS_RDTSCP) or (id = X86_INS_RDRAND)  or (id = X86_INS_RDSEED)   or (id = X86_INS_UD2)
+             or (id = X86_INS_UD2B) );
+
+end;
+
+function TCpuIstruz.IsInvalid: Boolean;
+begin
+     Result :=  IsUnusual and InGroup(CS_GRP_INVALID);
+end;
+
+function TCpuIstruz.IsError: Boolean;
+var
+  id : x86_insn;
+begin
+     id := x86_insn(opcode.mnem);
+     Result :=  IsUnusual and ( (id = X86_INS_HLT) or (id = X86_INS_UD0) or (id = X86_INS_UD2)  );
+
+end;
+
+function TCpuIstruz.IsNop: Boolean;
+  var
+    ops : array[0..3] of TCpuOperand;
+    op  : TCpuOperand;
+    reg : TCpuReg;
+    mem : TCpuMem;
+    i   : Integer;
+
+begin
+      for i  := 0 to High(operands) do
+          ops[i] := operands[i];
+
+      case x86_insn(opcode.mnem) of
+
+          X86_INS_NOP,
+          X86_INS_PAUSE,
+          X86_INS_FNOP:    Exit(true);  // nop
+          X86_INS_MOV,
+          X86_INS_CMOVA,
+          X86_INS_CMOVAE,
+          X86_INS_CMOVB,
+          X86_INS_CMOVBE,
+          X86_INS_CMOVE,
+          X86_INS_CMOVNE,
+          X86_INS_CMOVG,
+          X86_INS_CMOVGE,
+          X86_INS_CMOVL,
+          X86_INS_CMOVLE,
+          X86_INS_CMOVO,
+          X86_INS_CMOVNO,
+          X86_INS_CMOVP,
+          X86_INS_CMOVNP,
+          X86_INS_CMOVS,
+          X86_INS_CMOVNS,
+          X86_INS_MOVAPS,
+          X86_INS_MOVAPD,
+          X86_INS_MOVUPS,
+          X86_INS_MOVUPD,
+          X86_INS_XCHG:
+              // mov edi, edi
+              Exit( (ops[0].tipo = T_REG)  and  (ops[1].tipo = T_REG)  and  (ops[0].reg = ops[1].reg)  and (TCapstone.isSafe64NopRegOp(ops[0],Istruz_Arch)) );
+          X86_INS_LEA:
+          begin
+              // lea eax, [eax + 0]
+              reg := ops[0].reg;
+              mem := ops[1].mem;
+              Exit( (ops[0].tipo = T_REG)  and  (ops[1].tipo = T_MEM)  and  (mem.disp = 0)  and
+                     ( ((mem.index.reg = REG_INVALID)  and  (mem.base = reg))  or
+                       ((mem.index = reg)  and  (mem.base.reg = REG_INVALID)  and  (mem.scale = 1)))  and  (TCapstone.isSafe64NopRegOp(ops[0],Istruz_Arch)) );
+          end;
+          X86_INS_JMP,
+          X86_INS_JA,
+          X86_INS_JAE,
+          X86_INS_JB,
+          X86_INS_JBE,
+          X86_INS_JE,
+          X86_INS_JNE,
+          X86_INS_JG,
+          X86_INS_JGE,
+          X86_INS_JL,
+          X86_INS_JLE,
+          X86_INS_JO,
+          X86_INS_JNO,
+          X86_INS_JP,
+          X86_INS_JNP,
+          X86_INS_JS,
+          X86_INS_JNS,
+          X86_INS_JECXZ,
+          X86_INS_JRCXZ,
+          X86_INS_JCXZ:
+              begin
+                  // jmp 0
+                  op := ops[0];
+                  Exit( (op.tipo = T_IMM)  and  (op.imm.U = Address + Size) );
+              end;
+          X86_INS_SHL,
+          X86_INS_SHR,
+          X86_INS_ROL,
+          X86_INS_ROR,
+          X86_INS_SAR,
+          X86_INS_SAL:
+              begin
+                  // shl eax, 0
+                  op := ops[1];
+                  Exit( (op.tipo = T_IMM)  and  (op.imm.U = 0)  and  (TCapstone.isSafe64NopRegOp(ops[0],Istruz_Arch)) );
+              end;
+          X86_INS_SHLD,
+          X86_INS_SHRD:
+              begin
+                  // shld eax, ebx, 0
+                  op := ops[2];
+                  Exit( (op.tipo = T_IMM)  and  (op.imm.U = 0)  and  (TCapstone.isSafe64NopRegOp(ops[0],Istruz_Arch))  and  (TCapstone.isSafe64NopRegOp(ops[1],Istruz_Arch)) );
+              end;
+          else
+              Exit(false);
+      end;
+
+end;
+
+function TCpuIstruz.IsInt3: Boolean;
+var
+   op : TCpuOperand;
+begin
+     case x86_insn(opcode.mnem) of
+        X86_INS_INT3: Exit(true);
+        X86_INS_INT:
+              begin
+                  op := operands[0];
+                  Exit( (op.tipo = T_IMM ) and  (op.imm.U = 3) );
+              end;
+     else
+         Exit(false);
+     end;
+
+end;
 
 function TCpuIstruz.IsEq(cCmd: TCpuOpCode; opTipo: TArray<TCpuOperandTipo>): Boolean;
 var
@@ -1071,6 +1397,7 @@ var
   i,nR   : Integer;
 
 begin
+    instr.Istruz_Arch  :=  FMode;
 
     instr.opcode.mnem  := Mnemonics(insn.id);
     detail := insn.detail^;
@@ -1217,7 +1544,7 @@ begin
 
      for i := 0 to High(List) do
      begin
-          if IsCFI(list[i]) then
+          if list[i].IsCFI then
           begin
                found := False;
                List[i].refTo := list[i].operands[0].imm.u;
@@ -1825,141 +2152,6 @@ begin
          Result := FileOffsetToRva(dwFileOffset) + PImageNtHeaders64(FNT)^.OptionalHeader.ImageBase
 end;
 
-function TCapstone.Internal_Ingroup(Istruz:TCpuIstruz; group: cs_group_type):Boolean;
-var
-  i : Integer;
-begin
-    Result := False;
-    for i := 0 to High(istruz.groups) do
-      if istruz.groups[i] = Ord(group) then
-        Exit(True)
-
-end;
-
-function TCapstone.InGroup(group: cs_group_type): Boolean;
-begin
-    Result := InGroup(FIstruz,group) ;
-end;
-
-function TCapstone.InGroup(Istruz: TCpuIstruz; group: cs_group_type): Boolean;
-var
-  id : x86_insn;
-begin
-
-    if group = CS_GRP_PRIVILEGE then
-    begin
-         id := x86_insn(Istruz.OpCode.mnem);
-        // I/O instructions
-        if (id = X86_INS_OUT) or (id = X86_INS_OUTSB) or (id = X86_INS_OUTSD) or (id = X86_INS_OUTSW) or
-           (id = X86_INS_IN)  or (id = X86_INS_INSB)  or (id = X86_INS_INSD)  or (id = X86_INS_INSW)  or
-            // system instructions
-           (id = X86_INS_RDMSR) or (id = X86_INS_SMSW)  then
-            Exit(true);
-    end;
-    Result := Internal_Ingroup(Istruz, group);
-
-end;
-
-function TCapstone.IsLoop: Boolean;
-begin
-    if not FSuccess then Exit(False);
-
-    Result := IsLoop(FIstruz) ;
-end;
-
-function TCapstone.IsLoop(Istruz: TCpuIstruz): Boolean;
-begin
-
-    case x86_insn(Istruz.opcode.mnem) of
-      X86_INS_LOOP,
-      X86_INS_LOOPE,
-      X86_INS_LOOPNE : Result := True;
-    else
-      Result := False;
-    end;
-end;
-
-function TCapstone.IsJcc: Boolean;
-begin
-    Result := IsJcc(FIstruz);
-end;
-
-function TCapstone.IsJcc(Istruz: TCpuIstruz): Boolean;
-begin
-   if(InGroup(Istruz,CS_GRP_JUMP)) and  (x86_insn(Istruz.opcode.mnem) <> X86_INS_JMP) then
-     Result := True
-   else
-     Result := False;
-end;
-
-function TCapstone.IsJmp: Boolean;
-begin
-     Result := IsJmp(FIstruz);
-end;
-
-function TCapstone.IsJmp(Istruz: TCpuIstruz): Boolean;
-begin
-    Result := x86_insn(Istruz.opcode.mnem) = X86_INS_JMP;
-end ;
-
-function TCapstone.IsCall: Boolean;
-begin
-     Result := IsCall(FIstruz);
-end;
-
-function TCapstone.IsCall(Istruz: TCpuIstruz): Boolean;
-begin
-    Result := InGroup(Istruz,CS_GRP_CALL)
-end;
-
-function TCapstone.IsRet: Boolean;
-begin
-    Result := IsRet(FIstruz);
-end;
-
-function TCapstone.IsRet(Istruz: TCpuIstruz): Boolean;
-begin
-    Result := InGroup(Istruz,CS_GRP_RET)
-end;
-
-function TCapstone.IsCFI: Boolean;
-begin
-   Result := IsCFI(FIstruz);
-end;
-
-function TCapstone.IsCFI(Istruz: TCpuIstruz): Boolean;
-begin
-    if IsJcc(Istruz)        then Exit(True)
-    else if IsJmp(Istruz)   then Exit(True)
-    else if IsCall(Istruz)  then Exit(True)
-    else if IsRet(Istruz)   then Exit(True)
-    else if IsLoop(Istruz)  then Exit(True)
-    else
-         Exit(False)
-end;
-
-function TCapstone.BranchDestination: Uint64;
-begin
-    if not FSuccess then Exit(0);
-
-    Result := BranchDestination(FIstruz)
-
-end;
-
-function TCapstone.BranchDestination(Istruz: TCpuIstruz): Uint64;
-var
-  op : TCpuOperand;
-begin
-
-    if(InGroup(Istruz,CS_GRP_JUMP)) or (InGroup(Istruz,CS_GRP_CALL)) or (IsLoop(Istruz)) then
-    begin
-        op := Istruz.operands[0];
-        if op.Tipo = T_IMM then
-             Exit(op.imm.U);
-    end;
-    Result := 0;
-end;
-
 function TCapstone.GetAddr: UInt64;
 begin
     if not FSuccess then Exit(0);
@@ -2048,11 +2240,11 @@ begin
 end;
 
 // porting from x64dbg
-function TCapstone.isSafe64NopRegOp(op : TCpuOperand):Boolean;
+class function TCapstone.isSafe64NopRegOp(op : TCpuOperand; mModo: cs_mode):Boolean;
  begin
      if op.tipo <> T_REG then Exit(true); //a non-register is safe
 
-     if FMode = CS_MODE_64 then
+     if mModo = CS_MODE_64 then
      begin
          case op.reg.reg of
              EAX,
@@ -2080,135 +2272,6 @@ function TCapstone.isSafe64NopRegOp(op : TCpuOperand):Boolean;
 end;
 
 // porting from x64dbg
-function TCapstone.IsNop:Boolean;
-  var
-    ops : array[0..3] of TCpuOperand;
-    op  : TCpuOperand;
-    reg : TCpuReg;
-    mem : TCpuMem;
-    i   : Integer;
-
-  begin
-      if  not FSuccess then   Exit(false);
-
-      for i  := 0 to High(FIstruz.operands) do
-          ops[i] := FIstruz.operands[i];
-
-      case x86_insn(GetId) of
-
-          X86_INS_NOP,
-          X86_INS_PAUSE,
-          X86_INS_FNOP:    Exit(true);  // nop
-          X86_INS_MOV,
-          X86_INS_CMOVA,
-          X86_INS_CMOVAE,
-          X86_INS_CMOVB,
-          X86_INS_CMOVBE,
-          X86_INS_CMOVE,
-          X86_INS_CMOVNE,
-          X86_INS_CMOVG,
-          X86_INS_CMOVGE,
-          X86_INS_CMOVL,
-          X86_INS_CMOVLE,
-          X86_INS_CMOVO,
-          X86_INS_CMOVNO,
-          X86_INS_CMOVP,
-          X86_INS_CMOVNP,
-          X86_INS_CMOVS,
-          X86_INS_CMOVNS,
-          X86_INS_MOVAPS,
-          X86_INS_MOVAPD,
-          X86_INS_MOVUPS,
-          X86_INS_MOVUPD,
-          X86_INS_XCHG:
-              // mov edi, edi
-              Exit( (ops[0].tipo = T_REG)  and  (ops[1].tipo = T_REG)  and  (ops[0].reg = ops[1].reg)  and (isSafe64NopRegOp(ops[0])) );
-          X86_INS_LEA:
-          begin
-              // lea eax, [eax + 0]
-              reg := ops[0].reg;
-              mem := ops[1].mem;
-              Exit( (ops[0].tipo = T_REG)  and  (ops[1].tipo = T_MEM)  and  (mem.disp = 0)  and
-                     ( ((mem.index.reg = REG_INVALID)  and  (mem.base = reg))  or
-                       ((mem.index = reg)  and  (mem.base.reg = REG_INVALID)  and  (mem.scale = 1)))  and  (isSafe64NopRegOp(ops[0])) );
-          end;
-          X86_INS_JMP,
-          X86_INS_JA,
-          X86_INS_JAE,
-          X86_INS_JB,
-          X86_INS_JBE,
-          X86_INS_JE,
-          X86_INS_JNE,
-          X86_INS_JG,
-          X86_INS_JGE,
-          X86_INS_JL,
-          X86_INS_JLE,
-          X86_INS_JO,
-          X86_INS_JNO,
-          X86_INS_JP,
-          X86_INS_JNP,
-          X86_INS_JS,
-          X86_INS_JNS,
-          X86_INS_JECXZ,
-          X86_INS_JRCXZ,
-          X86_INS_JCXZ:
-              begin
-                  // jmp 0
-                  op := ops[0];
-                  Exit( (op.tipo = T_IMM)  and  (op.imm.U = Address + Size) );
-              end;
-          X86_INS_SHL,
-          X86_INS_SHR,
-          X86_INS_ROL,
-          X86_INS_ROR,
-          X86_INS_SAR,
-          X86_INS_SAL:
-              begin
-                  // shl eax, 0
-                  op := ops[1];
-                  Exit( (op.tipo = T_IMM)  and  (op.imm.U = 0)  and  (isSafe64NopRegOp(ops[0])) );
-              end;
-          X86_INS_SHLD,
-          X86_INS_SHRD:
-              begin
-                  // shld eax, ebx, 0
-                  op := ops[2];
-                  Exit( (op.tipo = T_IMM)  and  (op.imm.U = 0)  and  (isSafe64NopRegOp(ops[0]))  and  (isSafe64NopRegOp(ops[1])) );
-              end;
-          else
-              Exit(false);
-      end;
-end;
-
-function TCapstone.IsInt3:Boolean;
-var
-   op : TCpuOperand;
-begin
-     if not FSuccess then  Exit(False);
-
-     case x86_insn(GetId) of
-        X86_INS_INT3: Exit(true);
-        X86_INS_INT:
-              begin
-                  op := Fistruz.operands[0];
-                  Exit( (op.tipo = T_IMM ) and  (op.imm.U = 3) );
-              end;
-     else
-         Exit(false);
-     end;
-end;
-
-function TCapstone.IsUnusual: Boolean;
-var
-  id : x86_insn;
-begin
-     id := x86_insn(GetId);
-     Exit( (InGroup(CS_GRP_PRIVILEGE))or (InGroup(CS_GRP_IRET))  or (InGroup(CS_GRP_INVALID))
-             or (id = X86_INS_RDTSC)  or (id = X86_INS_SYSCALL) or (id = X86_INS_SYSENTER) or (id = X86_INS_CPUID)
-             or (id = X86_INS_RDTSCP) or (id = X86_INS_RDRAND)  or (id = X86_INS_RDSEED)   or (id = X86_INS_UD2)
-             or (id = X86_INS_UD2B) );
-end;
-
 function TCapstone.MemSizeName(size: Integer): string;
 begin
      case size of
